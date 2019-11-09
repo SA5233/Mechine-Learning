@@ -1,0 +1,134 @@
+学习了Adaboost算法之后，感觉自己理解的还不够深刻，所以在这里梳理一下Adaboost算法的流程，每一步骤的意义和细节问题的解答。
+### 一，算法目的
+样本集如下，Adaboost将根据XMat返回预测的yMat值
+code | xMat[0] | xMat[1] | yMat
+-|---|---|-
+A | 1 | 2.1 | 1
+B | 1.5 | 1.6 | 1
+C| 1.3 |1 | -1
+D | 1 | 1 | -1
+E| 2 | 1 | 1
+### 二，单层决策树思想
+我们之前学过决策树分类器，选取信息增益最大的列进行分类，构建多层决策树返回预测标签值。
+决策树流程如下：
+
+```
+graph TD
+A[ABCDE]-->B{xMat0<1.5}
+B-->|Yes|C[ACD]
+B-->|No|D[BE]
+C-->E{xMat1<1.5}
+E-->|Yes|F[CD]
+E-->|No|G[A]
+D-->H{xMat1<1.5}
+H-->|Yes|I[CD]
+H-->|No|J[A]
+```
+可以看到这里我们执行了两层决策树得到了分类的标签，然而在Adaboost中，我们只构建单层决策树
+
+```
+graph TD
+A[ABCDE]-->B{xMat0<1.5}
+B-->|Yes|C[ACD]
+B-->|No|D[BE]
+```
+
+```
+def get_Stump(xMat,yMat,D):
+    m,n = xMat.shape                                #m为样本个数，n为特征数             
+    Steps = 10                                      #初始化一个步数
+    bestStump = {}                                  #用字典形式来储存树桩信息
+    bestClas = np.mat(np.zeros((m,1)))              #初始化分类结果为1
+    minE = np.inf                                   #最小误差初始化为正无穷大
+    for i in range(n):                              #遍历所有特征
+        Min = xMat[:,i].min()                       #找到特征中最小值
+        Max = xMat[:,i].max()                       #找到特征中最大值
+        stepSize = (Max - Min) / Steps              #计算步长
+        for j in range(-1, int(Steps)+1):     # -1 是因为让阈值小于最小特征，好分类                 
+            for S in ['lt', 'gt']:                  #大于和小于的情况，均遍历。lt:less than，gt:greater than
+                Q = (Min + j * stepSize)            #计算阈值
+                re = Classify0(xMat, i, Q, S)       #计算分类结果
+                err = np.mat(np.ones((m,1)))        #初始化误差矩阵
+                err[re == yMat] = 0                 #分类正确的,赋值为0
+                eca = D.T * err                     #计算误差
+                #print(f'切分特征: {i}, 阈值:{np.round(Q,2)}, 标志:{S}, 权重误差:{np.round(eca,3)}')
+                if eca < minE:                      #找到误差最小的分类方式
+                    minE = eca
+                    bestClas = re.copy()
+                    bestStump['特征列'] = i
+                    bestStump['阈值'] = Q
+                    bestStump['标志'] = S
+    return bestStump,minE,bestClas
+```
+
+代码中get_Stump函数得到的就是这样一个单层决策树，Adaboost对同样的一个数据集样本循环40次，得到40个单层决策树，也叫弱分类器。第n个弱分类器的误差eca，它的单层决策树误差err，有
+
+>eca=D*err
+
+每次遍历分类结果是re,其中eca最小的分类结果为bestClas
+
+### 三，构建强分类器
+
+D是样本权重，通过每次改变参数D的取值，新的弱分类器的最小误差会发生变化，同时最优特征列和阈值也会变化，直到误差为0，停止更新。
+
+
+```
+def Ada_train(xMat, yMat, maxC): #循坏40次
+    weakClass = []                                  #弱分类器
+    m = xMat.shape[0]
+    D = np.mat(np.ones((m, 1)) / m)                         #初始化权重
+    aggClass = np.mat(np.zeros((m,1)))                #类别估计值
+    for i in range(maxC):
+        Stump, error, bestClas = get_Stump(xMat, yMat,D)    #构建单层决策树
+        print(f"D:{D.T}")
+        #print(Stump)
+        alpha=float(0.5 * np.log((1 - error) / max(error, 1e-16))) #计算弱分类器权重alpha
+        Stump['alpha'] = np.round(alpha,2)                  #存储弱学习算法权重,保留两位小数
+        weakClass.append(Stump)                             #存储单层决策树
+        #print("bestClas: ", bestClas.T)
+        expon = np.multiply(-1 * alpha *yMat, bestClas)     #计算e的指数项
+        D = np.multiply(D, np.exp(expon))                                      
+        D = D / D.sum()               #根据样本权重公式，更新样本权重
+        aggClass += alpha * bestClas                        #更新累计类别估计值
+        #print(f"aggClass: {aggClass.T}" )
+        aggErr = np.multiply(np.sign(aggClass) != yMat, np.ones((m,1))) #把逻辑值TRUE=1,FALSE=0转化为数组
+        errRate = aggErr.sum() / m             #错误率
+        #print(f"分类错误率: {errRate}")
+        if errRate == 0: break                               #分类误差为0，退出循环
+    return weakClass, aggClass     
+```
+
+在本例中，循环10次，得到的样本权重为：
+> D:[[0.2 0.2 0.2 0.2 0.2]]
+
+> D:[[0.5   0.125 0.125 0.125 0.125]]
+
+> D:[[0.28571429 0.07142857 0.07142857 0.07142857 0.5    ]]
+> 
+得到的alpha值为：
+> 0.6931471805599453
+
+> 0.9729550745276565
+
+> 0.8958797346140273
+ 
+可以看出，并不一定是单调变化的。
+
+  而误差分别是：
+> [0.2]
+
+> [0.125]
+
+> [0.14285714]
+
+
+aggClass表示综合多个弱分类器的结果
+> aggClass += alpha * bestClas  
+> np.sign(aggClass)
+
+遍历结果为：
+> [-0.69314718  0.69314718 -0.69314718 -0.69314718  0.69314718]
+
+> [ 0.27980789  1.66610226 -1.66610226 -1.66610226 -0.27980789]
+
+> [ 1.17568763  2.56198199 -0.77022252 -0.77022252  0.61607184]
