@@ -1,3 +1,2 @@
- 再笑，再笑
-#### 再笑我就把你喝掉
+记录学习Mechine Learning的过程
 ###  :smiley:
